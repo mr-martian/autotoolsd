@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys, os, argparse
+import xml.etree.ElementTree as ET
 
 PC_FILE = '''prefix={prefix}
 exec_prefix={prefix}
@@ -9,6 +10,39 @@ srcdir={prefix}/share/apertium/{BASENAME}
 Name: {BASENAME}
 Description: {Description}
 Version: {VERSION}
+'''
+
+INSTALL_RECIPE = '''
+install-pc: $(BASENAME).pc
+	$(MKDIR_P) $(DESTDIR)$(pkgconfigdir) || exit 1
+	$(INSTALL) $(BASENAME).pc $(DESTDIR)$(pkgconfigdir) || exit $$?
+uninstall-pc:
+	test -d $(DESTDIR)$(pkgconfigdir) && \\
+	test -r $(DESTDIR)$(pkgconfigdir) && \\
+	cd $(DESTDIR)$(pkgconfigdir) && rm -f $(BASENAME).pc
+
+DATA = $(SOURCES) $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS)
+install-data: all
+	$(MKDIR_P) $(DESTDIR)$(datadir) || exit 1
+	$(INSTALL) $(DATA) $(DESTDIR)$(datadir) || exit $$?
+uninstall-data:
+	test -d $(DESTDIR)$(datadir) && test -r $(DESTDIR)$(datadir) && \\
+	cd $(DESTDIR)$(datadir) && rm -f $(DATA)
+
+install-modes: $(INSTALL_MODES)
+	apertium-gen-modes -f modes.xml $(datadir)
+	$(MKDIR_P) $(DESTDIR)$(modesdir) || exit 1
+	$(INSTALL) $(INSTALL_MODES) $(DESTDIR)$(modesdir) || exit $$?
+	rm $(INSTALL_MODES)
+uninstall-modes:
+	test -d $(DESTDIR)$(modesdir) && test -r $(DESTDIR)$(modesdir) && \\
+	cd $(DESTDIR)$(modesdir) && rm -f $(INSTALL_MODES)
+
+install: install-pc install-data install-modes
+uninstall: uninstall-pc uninstall-data uninstall-modes
+
+.PHONY: install install-pc install-data install-modes
+.PHONY: uninstall uninstall-pc uninstall-data uninstall-modes
 '''
 
 # target => [ ( [ sources ], [ intermediate targets ] recipe ) ]
@@ -152,12 +186,17 @@ def gen_makefile(settings, makefile):
         for f in sorted(recipes.keys()):
             clean.append(f)
             out.write(recipes[f] + '\n\n')
-        out.write('CLEANFILES = ' + ' '.join(clean))
-        out.write(' $(CUSTOM_CLEAN)\n')
+        out.write('Makefile: $(BASENAME).meta modes.xml\n')
+        out.write('\tapertium-setup $(BASENAME).meta modes.xml\n')
+        out.write('$(BASENAME).pc: Makefile\n\n')
+        out.write('CLEANFILES = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS) $(CUSTOM_CLEAN)\n')
         out.write('clean:\n\t-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)\n')
         out.write('\t-rm -rf .deps modes *.mode\n\n')
-        out.write('all: $(CLEANFILES)\n')
+        out.write('all: Makefile $(BASENAME).pc $(CLEANFILES)\n\n')
+        out.write('.PHONY: all clean\n\n')
+        out.write(INSTALL_RECIPE)
         if 'CUSTOM' in settings:
+            out.write('\n\n')
             out.write(settings['CUSTOM'])
             out.write('\n')
 
@@ -198,7 +237,9 @@ def read_meta(fname):
                 settings['CUSTOM'] += line
                 continue
             toks = tokenize(line)
-            if len(toks) >= 3 and toks[1] == '=':
+            if len(toks) == 0:
+                continue
+            elif len(toks) >= 3 and toks[1] == '=':
                 if toks[0] in settings:
                     print('WARNING: %s set multiple times - using later definition.' % toks[0])
                 settings[toks[0]] = ' '.join(toks[2:])
@@ -255,6 +296,27 @@ def setup(args):
     if len(v) != 3 or not all(x.isdigit() for x in v):
         print('Metadata file must specify VERSION in the from Major.Minor.Patch.')
         sys.exit(1)
+    modes = ET.parse(args.modes_path).getroot()
+    settings['INSTALL_MODES'] = []
+    if 'TARGETS' in settings:
+        print('Build targets not mentioned in modes.xml should use EXTRA_TARGETS, not TARGETS')
+        sys.exit(1)
+    trg = []
+    for mode in modes:
+        if mode.attrib.get('install', 'no') == 'yes':
+            settings['INSTALL_MODES'].append(mode.attrib['name'] + '.mode')
+            for f in mode.iter('file'):
+                if f.attrib['name'] not in settings['SOURCES']:
+                    trg.append(f.attrib['name'])
+        else:
+            for fn in mode.iter('file'):
+                f = f.attrib['name']
+                if '/' not in f and f not in settings['SOURCES']:
+                    trg.append(f)
+    settings['TARGETS'] = list(set(trg))
+    settings['datadir'] = '{prefix}/share/apertium/{BASENAME}/'.format(**settings)
+    settings['modesdir'] = args.prefix + '/share/apertium/modes/'
+    settings['pkgconfigdir'] = args.prefix + '/share/pkgconfig/'
     gen_pc(settings, settings['BASENAME']+'.pc')
     gen_makefile(settings, 'Makefile')
 

@@ -1,6 +1,5 @@
 LANG = xyz
 VERSION = 0.1.0
-TARGETS: xyz.automorf.bin xyz.autogen.bin xyz.autopgen.bin
-TARGETS: xyz.rlx.bin
+
 SOURCES: apertium-xyz.xyz.dix apertium-xyz.post-xyz.dix
 SOURCES: apertium-xyz.xyz.rlx apertium-xyz.xyz.acx
