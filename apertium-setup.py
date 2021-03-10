@@ -13,11 +13,13 @@ Version: {VERSION}
 '''
 
 COMMON_RECIPES = '''
-Makefile: $(BASENAME).meta modes.xml
-	apertium-setup $(BASENAME).meta modes.xml
+all: Makefile $(BASENAME).pc modes/{mode_name} {targets}
+
+Makefile: {meta} modes.xml
+	apertium-setup {meta} modes.xml
 $(BASENAME).pc: Makefile
 
-gen-modes: modes.xml
+modes/{mode_name}: modes.xml
 	apertium-validate-modes modes.xml
 	apertium-gen-modes modes.xml
 
@@ -25,8 +27,6 @@ CLEANFILES = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS) $(CUSTOM_CLEAN)
 clean:
 	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 	-rm -rf .deps modes *.mode
-
-all: Makefile $(BASENAME).pc gen-modes $(CLEANFILES)
 
 .PHONY: all clean gen-modes
 
@@ -46,7 +46,7 @@ uninstall-data:
 	test -d $(DESTDIR)$(datadir) && test -r $(DESTDIR)$(datadir) && \\
 	cd $(DESTDIR)$(datadir) && rm -f $(DATA)
 
-install-modes: $(INSTALL_MODES)
+install-modes:
 	apertium-gen-modes -f modes.xml $(datadir)
 	$(MKDIR_P) $(DESTDIR)$(modesdir) || exit 1
 	$(INSTALL) $(INSTALL_MODES) $(DESTDIR)$(modesdir) || exit $$?
@@ -184,7 +184,7 @@ def get_recipes_mono(settings):
 def get_recipes_bil(settings):
     return {}
 
-def gen_makefile(settings, makefile):
+def gen_makefile(settings, makefile, meta_path):
     with open(makefile, 'w') as out:
         for s in sorted(settings.keys()):
             if s == 'CUSTOM' or s.startswith('_'):
@@ -194,6 +194,15 @@ def gen_makefile(settings, makefile):
             elif isinstance(settings[s], list):
                 out.write('%s = %s\n' % (s, ' '.join(settings[s])))
         out.write('\n')
+        rs = {
+            'meta': meta_path,
+            'mode_name': settings['INSTALL_MODES'][0]
+        }
+        trg = []
+        for k in ['TARGETS', 'EXTRA_TARGETS', 'CUSTOM_TARGETS']:
+            trg += settings.get(k, [])
+        rs['targets'] = ' '.join(trg)
+        out.write(COMMON_RECIPES.format(**rs))
         recipes = None
         if 'LANG' in settings:
             recipes = get_recipes_mono(settings)
@@ -203,7 +212,6 @@ def gen_makefile(settings, makefile):
         for f in sorted(recipes.keys()):
             clean.append(f)
             out.write(recipes[f] + '\n\n')
-        out.write(COMMON_RECIPES)
         if 'CUSTOM' in settings:
             out.write('\n\n')
             out.write(settings['CUSTOM'])
@@ -327,7 +335,7 @@ def setup(args):
     settings['modesdir'] = args.prefix + '/share/apertium/modes/'
     settings['pkgconfigdir'] = args.prefix + '/share/pkgconfig/'
     gen_pc(settings, settings['BASENAME']+'.pc')
-    gen_makefile(settings, 'Makefile')
+    gen_makefile(settings, 'Makefile', args.meta_path)
 
 if __name__ == '__main__':
     setup(sys.argv[1:])
