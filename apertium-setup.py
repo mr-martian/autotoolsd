@@ -15,20 +15,16 @@ Version: {VERSION}
 COMMON_RECIPES = '''
 all: Makefile $(BASENAME).pc modes/{mode_name} {targets}
 
-Makefile: {meta} modes.xml
-	apertium-setup {meta} modes.xml
+Makefile: $(srcdir)/{meta} $(srcdir)/modes.xml
+	apertium-setup $(srcdir)/{meta} $(srcdir)/modes.xml
 $(BASENAME).pc: Makefile
-
-modes/{mode_name}: modes.xml
-	apertium-validate-modes modes.xml
-	apertium-gen-modes modes.xml
 
 CLEANFILES = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS) $(CUSTOM_CLEAN)
 clean:
 	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 	-rm -rf .deps modes *.mode
 
-.PHONY: all clean gen-modes
+.PHONY: all clean
 
 install-pc: $(BASENAME).pc
 	$(MKDIR_P) $(DESTDIR)$(pkgconfigdir) || exit 1
@@ -38,16 +34,18 @@ uninstall-pc:
 	test -r $(DESTDIR)$(pkgconfigdir) && \\
 	cd $(DESTDIR)$(pkgconfigdir) && rm -f $(BASENAME).pc
 
-DATA = $(SOURCES) $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS)
+ALL_TARGETS = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS)
+ALL_SOURCES = $(SOURCES) $(EXTRA_SOURCES)
 install-data: all
 	$(MKDIR_P) $(DESTDIR)$(datadir) || exit 1
-	$(INSTALL) $(DATA) $(DESTDIR)$(datadir) || exit $$?
+	$(INSTALL) $(ALL_TARGETS) $(DESTDIR)$(datadir) || exit $$?
+	( cd $(srcdir) && $(INSTALL) $(ALL_SOURCES) $(DESTDIR)$(datadir) || exit $$? )
 uninstall-data:
 	test -d $(DESTDIR)$(datadir) && test -r $(DESTDIR)$(datadir) && \\
-	cd $(DESTDIR)$(datadir) && rm -f $(DATA)
+	cd $(DESTDIR)$(datadir) && rm -f $(ALL_TARGETS) $(ALL_SOURCES)
 
 install-modes:
-	apertium-gen-modes -f modes.xml $(datadir)
+	apertium-gen-modes -f $(srcdir)/modes.xml $(datadir)
 	$(MKDIR_P) $(DESTDIR)$(modesdir) || exit 1
 	$(INSTALL) $(INSTALL_MODES) $(DESTDIR)$(modesdir) || exit $$?
 	rm $(INSTALL_MODES)
@@ -70,7 +68,7 @@ MONO_RECIPES = {
          [],
          '{LANG}.automorf.bin: {BASENAME}.{LANG}.dix {BASENAME}.{LANG}.acx\n'
          '\tapertium-validate-dictionary $<\n'
-         '\tlt-comp lr $< $@ {BASENAME}.{LANG}.acx'),
+         '\tlt-comp lr $< $@ $(srcdir)/{BASENAME}.{LANG}.acx'),
         ([['dix']],
          [],
          '{LANG}.automorf.bin: {BASENAME}.{LANG}.dix\n'
@@ -87,7 +85,7 @@ MONO_RECIPES = {
          [],
          '{LANG}.autogen.bin: {BASENAME}.{LANG}.dix {BASENAME}.{LANG}.acx\n'
          '\tapertium-validate-dictionary $<\n'
-         '\tlt-comp rl $< $@ {BASENAME}.{LANG}.acx'),
+         '\tlt-comp rl $< $@ $(srcdir)/{BASENAME}.{LANG}.acx'),
         ([['dix']],
          [],
          '{LANG}.autogen.bin: {BASENAME}.{LANG}.dix\n'
@@ -203,6 +201,15 @@ def gen_makefile(settings, makefile, meta_path):
             trg += settings.get(k, [])
         rs['targets'] = ' '.join(trg)
         out.write(COMMON_RECIPES.format(**rs))
+        if 'VPATH' in settings:
+            out.write('\nmodes/{mode_name}: $(srcdir)/modes.xml\n'.format(**rs))
+            out.write('\t@rm -f modes.xml\n')
+            out.write('\t@cp $(srcdir)/modes.xml modes.xml\n')
+        else:
+            out.write('\nmodes/{mode_name}: modes.xml\n'.format(**rs))
+        out.write('\tapertium-validate-modes modes.xml\n')
+        out.write('\tapertium-gen-modes modes.xml\n')
+        out.write('modes/%.mode: modes/{mode_name}\n\n'.format(**rs))
         recipes = None
         if 'LANG' in settings:
             recipes = get_recipes_mono(settings)
@@ -334,8 +341,14 @@ def setup(args):
     settings['datadir'] = '{prefix}/share/apertium/{BASENAME}/'.format(**settings)
     settings['modesdir'] = args.prefix + '/share/apertium/modes/'
     settings['pkgconfigdir'] = args.prefix + '/share/pkgconfig/'
+    srcdir = os.path.dirname(os.path.abspath(args.meta_path))
+    builddir = os.getcwd()
+    settings['srcdir'] = srcdir
+    settings['builddir'] = builddir
+    if srcdir != builddir:
+        settings['VPATH'] = srcdir
     gen_pc(settings, settings['BASENAME']+'.pc')
-    gen_makefile(settings, 'Makefile', args.meta_path)
+    gen_makefile(settings, 'Makefile', os.path.basename(args.meta_path))
 
 if __name__ == '__main__':
     setup(sys.argv[1:])
