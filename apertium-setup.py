@@ -12,7 +12,24 @@ Description: {Description}
 Version: {VERSION}
 '''
 
-INSTALL_RECIPE = '''
+COMMON_RECIPES = '''
+Makefile: $(BASENAME).meta modes.xml
+	apertium-setup $(BASENAME).meta modes.xml
+$(BASENAME).pc: Makefile
+
+gen-modes: modes.xml
+	apertium-validate-modes modes.xml
+	apertium-gen-modes modes.xml
+
+CLEANFILES = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS) $(CUSTOM_CLEAN)
+clean:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
+	-rm -rf .deps modes *.mode
+
+all: Makefile $(BASENAME).pc gen-modes $(CLEANFILES)
+
+.PHONY: all clean gen-modes
+
 install-pc: $(BASENAME).pc
 	$(MKDIR_P) $(DESTDIR)$(pkgconfigdir) || exit 1
 	$(INSTALL) $(BASENAME).pc $(DESTDIR)$(pkgconfigdir) || exit $$?
@@ -186,15 +203,7 @@ def gen_makefile(settings, makefile):
         for f in sorted(recipes.keys()):
             clean.append(f)
             out.write(recipes[f] + '\n\n')
-        out.write('Makefile: $(BASENAME).meta modes.xml\n')
-        out.write('\tapertium-setup $(BASENAME).meta modes.xml\n')
-        out.write('$(BASENAME).pc: Makefile\n\n')
-        out.write('CLEANFILES = $(TARGETS) $(CUSTOM_TARGETS) $(EXTRA_TARGETS) $(CUSTOM_CLEAN)\n')
-        out.write('clean:\n\t-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)\n')
-        out.write('\t-rm -rf .deps modes *.mode\n\n')
-        out.write('all: Makefile $(BASENAME).pc $(CLEANFILES)\n\n')
-        out.write('.PHONY: all clean\n\n')
-        out.write(INSTALL_RECIPE)
+        out.write(COMMON_RECIPES)
         if 'CUSTOM' in settings:
             out.write('\n\n')
             out.write(settings['CUSTOM'])
